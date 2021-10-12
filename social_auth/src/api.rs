@@ -1,20 +1,53 @@
-use crate::twitch_config::TwitchResponse;
+use std::collections::HashMap;
+
 use rocket::http::Status;
-use rocket::request::{self, FromRequest, Outcome, Request};
+use rocket::request::{FromRequest, Outcome, Request};
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::response::content;
 use tokio::fs;
 
-#[get("/twitch")]
-async fn get_twitch_info(key: ApiKey<'_>) -> Result<content::Json<Vec<u8>>, ApiErrorResponse> {
-    let bytes = fs::read("twitch_auth.json").await?;
+#[get("/auth?<service>")]
+async fn get_twitch_info(_api_key: ApiKey<'_>, service: &str) -> Result<content::Json<Vec<u8>>, ApiErrorResponse> {
+    let bytes = fs::read(format!("{}_auth.json", service)).await;
+    let bytes = match bytes {
+        Ok(bytes) => bytes,
+        Err(e)  if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ApiErrorResponse::file_not_found(service));
+        }
+        Err(e) => {
+            return Err(e.into())
+        }
+    };
 
     Ok(content::Json(bytes))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CheckAvailResponse {
+    services: HashMap<String, bool>
+}
+
+#[get("/avail")]
+async fn check_avail(_api_key: ApiKey<'_>) -> Json<CheckAvailResponse> {
+    let mut response = CheckAvailResponse {
+        services: HashMap::new()
+    };
+    let services = vec!["twitch".to_string(), "twitter".to_string()];
+
+    for service in services.into_iter() {
+        let file = fs::File::open(format!("{}_auth.json", service)).await;
+        if file.is_ok() {
+            response.services.insert(service, true);
+        } else {
+            response.services.insert(service, false);
+        }
+    }
+    Json(response)
+}
+
 pub fn stage() -> rocket::fairing::AdHoc {
     rocket::fairing::AdHoc::on_ignite("twitch", |rocket| async {
-        rocket.mount("/api/v1", routes![get_twitch_info])
+        rocket.mount("/api/v1", routes![get_twitch_info, check_avail])
     })
 }
 
@@ -28,6 +61,16 @@ struct ApiError {
 #[derive(Debug, Responder)]
 struct ApiErrorResponse {
     inner: Json<ApiError>,
+}
+
+impl ApiErrorResponse {
+    fn file_not_found(service: &str) -> Self {
+        ApiErrorResponse { inner: Json(ApiError {
+            status: 401,
+            message: String::from("bad request"),
+            error: Some(format!("no {} info available", service)),
+        }) }
+    }
 }
 
 impl From<std::io::Error> for ApiErrorResponse {

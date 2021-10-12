@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css" integrity="sha512-IgmDkwzs96t4SrChW29No3NXBIBv8baW490zk5aXvhCD8vuZM3yUSkbyTBcXohkySecyzIrUwiF/qV0cuPcL3Q==" crossorigin="anonymous" referrerpolicy="no-referrer" />    <title>Marathon Tools Social Auth</title>
+    <script src="/js/index.js"></script>
+</head>
+<body>
+    <center>
+        <h1 class="is-size-1">Marathon Tools Social Auth</h1>
+    </center>
+
+    <div class="columns">
+        <div class="column has-text-centered is-size-2" id="twitter">
+            <p>Twitter</p>
+            <button class="button is-primary is-large is-loading" id="twitterButton" onclick="twitterConnect()">Connect</button>
+        </div>
+        <div class="column has-text-centered is-size-2" id="twitch">
+            <p>Twitch</p>
+            <button class="button is-primary is-large is-loading" id="twitchButton" onclick="twitchConnect()">Connect</button>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="content has-text-centered">
+            <p>
+                <strong>Marathon Tools Social</strong> made by <a href="https://twitter.com/onest4y">Onestay</a>
+            </p>
+        </div>
+    </footer>
+</body>
+</html>
