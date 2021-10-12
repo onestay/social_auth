@@ -94,15 +94,16 @@ async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorRes
 }
 
 #[get("/authorize/callback?<oauth_token>&<oauth_verifier>")]
-async fn authorize_callback(
-    twitter: &State<Twitter>,
+// we need to allow unused variables here since oauth_token is not needed by us but provided by the twitter api callback, sadly rocket doesn't let us prefix it with _ either
+#[allow(unused_variables)] async fn authorize_callback(
     oauth_token: &str,
+    twitter: &State<Twitter>,
     oauth_verifier: &str,
 ) -> Result<Redirect, TwitterErrorResponse> {
     let request_token = twitter.request_token.lock().await;
     if let Some(ref request_token) = *request_token {
         let (token, _, _) =
-            egg_mode::auth::access_token(twitter.con_token.clone(), &request_token, oauth_verifier)
+            egg_mode::auth::access_token(twitter.con_token.clone(), request_token, oauth_verifier)
                 .await?;
         fs::write("twitter_auth.json", serde_json::to_vec(&token)?).await?;
     }

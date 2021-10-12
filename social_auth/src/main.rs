@@ -38,10 +38,10 @@ impl Config {
         Config {
             twitch_client_id: env::var("TWITCH_CLIENT_ID").expect("did not find a TWITCH_CLIENT_ID"),
             twitch_client_secret: env::var("TWITCH_CLIENT_SECRET").expect("did not find a TWITCH_CLIENT_SECRET"),
-            twitch_redirect_uri: env::var("TWITCH_REDIRECT_URI").unwrap_or(String::from("http://localhost:8000/twitch/authorize/callback")),
+            twitch_redirect_uri: env::var("TWITCH_REDIRECT_URI").unwrap_or_else(|_| String::from("http://localhost:8000/twitch/authorize/callback")),
             twitter_api_key: env::var("TWITTER_API_KEY").expect("did not find a TWITTER_API_KEY"),
             twitter_api_secret: env::var("TWITTER_API_SECRET").expect("did not find a TWITTER_API_SECRET"),
-            twitter_callback_url: env::var("TWITTER_CALLBACK_URL").unwrap_or(String::from("http://127.0.0.1:8000/twitter/authorize/callback")),
+            twitter_callback_url: env::var("TWITTER_CALLBACK_URL").unwrap_or_else(|_| String::from("http://127.0.0.1:8000/twitter/authorize/callback")),
 
         }
     }

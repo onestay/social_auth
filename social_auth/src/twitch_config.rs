@@ -9,7 +9,7 @@ use tokio::fs;
 
 const AUTHORIZE_URL: &str = "https://id.twitch.tv/oauth2/authorize";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
-const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
+// const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 
 pub struct Twitch {
     client_id: String,
@@ -78,7 +78,7 @@ impl From<reqwest::Error> for TwitchErrorResponse {
         let twitch_error = TwitchError {
             status: err
                 .status()
-                .unwrap_or_else(|| StatusCode::INTERNAL_SERVER_ERROR)
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
                 .as_u16(),
             message: err.to_string(),
             error: Some(String::from("internal server error")),
@@ -111,7 +111,7 @@ impl From<std::io::Error> for TwitchErrorResponse {
     }
 }
 
-pub fn stage<'a>() -> rocket::fairing::AdHoc {
+pub fn stage() -> rocket::fairing::AdHoc {
     rocket::fairing::AdHoc::on_ignite("twitch", |rocket| async {
         rocket
             .mount("/twitch", routes![authorize_callback])
