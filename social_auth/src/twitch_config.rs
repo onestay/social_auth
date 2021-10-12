@@ -11,14 +11,14 @@ const AUTHORIZE_URL: &str = "https://id.twitch.tv/oauth2/authorize";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 
-struct Twitch<'a> {
-    client_id: &'a str,
-    client_secret: &'a str,
-    redirect_uri: &'a str,
+struct Twitch {
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
 }
 
-impl<'a> Twitch<'a> {
-    pub fn new(client_id: &'a str, client_secret: &'a str, redirect_uri: &'a str) -> Twitch<'a> {
+impl Twitch {
+    pub fn new(client_id: String, client_secret: String, redirect_uri: String) -> Twitch {
         Twitch {
             client_id,
             client_secret,
@@ -50,7 +50,7 @@ fn authorize(twitch: &State<Twitch>) -> Redirect {
 
 #[get("/authorize/callback?<code>")]
 async fn authorize_callback(
-    twitch: &State<Twitch<'_>>,
+    twitch: &State<Twitch>,
     code: &str,
 ) -> Result<Redirect, TwitchErrorResponse> {
     let client = reqwest::Client::new();
@@ -112,11 +112,11 @@ impl From<std::io::Error> for TwitchErrorResponse {
     }
 }
 
-pub fn stage() -> rocket::fairing::AdHoc {
+pub fn stage<'a>(client_id: String, client_secret: String, redirect_uri: String) -> rocket::fairing::AdHoc {
     let twitch = Twitch::new(
-        "",
-        "",
-        "http://localhost:8000/twitch/authorize/callback",
+        client_id,
+        client_secret,
+        redirect_uri,
     );
 
     rocket::fairing::AdHoc::on_ignite("twitch", |rocket| async {

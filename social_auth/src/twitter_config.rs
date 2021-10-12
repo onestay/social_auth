@@ -10,23 +10,19 @@ use egg_mode::{auth, KeyPair};
 
 use tokio::fs;
 
-struct Twitter<'a> {
-    api_key: &'a str,
-    api_secret: &'a str,
-    callback_url: &'a str,
+struct Twitter {
+    callback_url: String,
     request_token: Mutex<Option<KeyPair>>,
     con_token: KeyPair,
 }
 
-impl<'a> Twitter<'a> {
+impl Twitter {
     pub fn new(
-        api_key: &'static str,
-        api_secret: &'static str,
-        callback_url: &'a str,
-    ) -> Twitter<'a> {
+        api_key: String,
+        api_secret: String,
+        callback_url: String,
+    ) -> Twitter {
         Twitter {
-            api_key,
-            api_secret,
             callback_url,
             request_token: Mutex::new(None),
             con_token: egg_mode::KeyPair::new(api_key, api_secret),
@@ -82,10 +78,9 @@ impl From<serde_json::Error> for TwitterErrorResponse {
     }
 }
 
-
 #[get("/authorize")]
-async fn authorize(twitter: &State<Twitter<'_>>) -> Result<Redirect, TwitterErrorResponse> {
-    let req_token = egg_mode::auth::request_token(&twitter.con_token, twitter.callback_url).await?;
+async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorResponse> {
+    let req_token = egg_mode::auth::request_token(&twitter.con_token, &twitter.callback_url).await?;
     let redirect_url = auth::authorize_url(&req_token);
     let mut token = twitter.request_token.lock().await;
     *token = Some(req_token);
@@ -94,7 +89,7 @@ async fn authorize(twitter: &State<Twitter<'_>>) -> Result<Redirect, TwitterErro
 
 #[get("/authorize/callback?<oauth_token>&<oauth_verifier>")]
 async fn authorize_callback(
-    twitter: &State<Twitter<'_>>,
+    twitter: &State<Twitter>,
     oauth_token: &str,
     oauth_verifier: &str,
 ) -> Result<Redirect, TwitterErrorResponse> {
@@ -108,12 +103,8 @@ async fn authorize_callback(
     Ok(Redirect::to("/"))
 }
 
-pub fn stage() -> rocket::fairing::AdHoc {
-    let twitter = Twitter::new(
-        "",
-        "",
-        "http://127.0.0.1:8000/twitter/authorize/callback",
-    );
+pub fn stage(api_key: String, api_secret: String, callback_url: String) -> rocket::fairing::AdHoc {
+    let twitter = Twitter::new(api_key, api_secret, callback_url);
 
     rocket::fairing::AdHoc::on_ignite("twitter", |rocket| async {
         rocket
