@@ -1,19 +1,27 @@
 mod twitch_config;
 mod api;
 mod twitter_config;
+mod templates;
 #[macro_use]
 extern crate rocket;
 use rocket::fs::FileServer;
 use std::env;
 
+
 #[launch]
 fn rocket() -> _ {
     let config = Config::from_env();
+    let twitch = twitch_config::Twitch::new(config.twitch_client_id, config.twitch_client_secret, config.twitch_redirect_uri);
+    let twitter = twitter_config::Twitter::new(config.twitter_api_key, config.twitter_api_secret, config.twitter_callback_url);
+
     rocket::build()
-        .mount("/", FileServer::from("public"))
-        .attach(twitch_config::stage(config.twitch_client_id, config.twitch_client_secret, config.twitch_redirect_uri))
+        .manage(twitch)
+        .manage(twitter)
+        .mount("/", FileServer::from("public/"))
+        .attach(templates::stage())
+        .attach(twitch_config::stage())
         .attach(api::stage())
-        .attach(twitter_config::stage(config.twitter_api_key, config.twitter_api_secret, config.twitter_callback_url))
+        .attach(twitter_config::stage())
 }
 
 struct Config {

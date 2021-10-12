@@ -10,7 +10,7 @@ use egg_mode::{auth, KeyPair};
 
 use tokio::fs;
 
-struct Twitter {
+pub struct Twitter {
     callback_url: String,
     request_token: Mutex<Option<KeyPair>>,
     con_token: KeyPair,
@@ -28,17 +28,26 @@ impl Twitter {
             con_token: egg_mode::KeyPair::new(api_key, api_secret),
         }
     }
+
+    pub async fn get_authorize_url(&self) -> Result<String, TwitterErrorResponse> {
+        let req_token = egg_mode::auth::request_token(&self.con_token, &self.callback_url).await?;
+        let redirect_url = auth::authorize_url(&req_token);
+        let mut token = self.request_token.lock().await;
+        *token = Some(req_token);
+
+        Ok(redirect_url)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct TwitterError {
+pub struct TwitterError {
     status: u16,
     message: String,
     error: Option<String>,
 }
 
 #[derive(Debug, Responder)]
-struct TwitterErrorResponse {
+pub struct TwitterErrorResponse {
     inner: Json<TwitterError>,
 }
 
@@ -80,10 +89,7 @@ impl From<serde_json::Error> for TwitterErrorResponse {
 
 #[get("/authorize")]
 async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorResponse> {
-    let req_token = egg_mode::auth::request_token(&twitter.con_token, &twitter.callback_url).await?;
-    let redirect_url = auth::authorize_url(&req_token);
-    let mut token = twitter.request_token.lock().await;
-    *token = Some(req_token);
+    let redirect_url = twitter.get_authorize_url().await?;
     Ok(Redirect::to(redirect_url))
 }
 
@@ -103,12 +109,9 @@ async fn authorize_callback(
     Ok(Redirect::to("/"))
 }
 
-pub fn stage(api_key: String, api_secret: String, callback_url: String) -> rocket::fairing::AdHoc {
-    let twitter = Twitter::new(api_key, api_secret, callback_url);
-
+pub fn stage() -> rocket::fairing::AdHoc {
     rocket::fairing::AdHoc::on_ignite("twitter", |rocket| async {
         rocket
             .mount("/twitter", routes![authorize, authorize_callback])
-            .manage(twitter)
     })
 }

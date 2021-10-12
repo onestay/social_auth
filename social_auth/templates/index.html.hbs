@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css" integrity="sha512-IgmDkwzs96t4SrChW29No3NXBIBv8baW490zk5aXvhCD8vuZM3yUSkbyTBcXohkySecyzIrUwiF/qV0cuPcL3Q==" crossorigin="anonymous" referrerpolicy="no-referrer" />    <title>Marathon Tools Social Auth</title>
+</head>
+<body>
+    <section class="section">
+        <div class="container">
+            <center>
+                <h1 class="is-size-1">Marathon Tools Social Auth</h1>
+            </center>
+
+            <div class="columns">
+                <div class="column has-text-centered is-size-2" id="twitter">
+                    <p>Twitter</p>
+                    {{#if twitter_avail}}
+                        <button class="button is-primary is-large" disabled>Already connected</button>
+                    {{else}}
+                        <a href="{{twitter_url}}">
+                            <button class="button is-primary is-large" href="{{twitter_url}}">Connect</button>
+                        </a>
+                    {{/if}}
+                </div>
+                <div class="column has-text-centered is-size-2" id="twitch">
+                    <p>Twitch</p>
+                    {{#if twitch_avail}}
+                        <button class="button is-primary is-large" disabled>Already connected</button>
+                    {{else}}
+                        <a href="{{twitch_url}}">
+                            <button class="button is-primary is-large" href="{{twitch_url}}">Connect</button>
+                        </a>
+                    {{/if}}
+                </div>
+            </div>
+
+            <footer class="footer">
+                <div class="content has-text-centered container">
+                    <p>
+                        <strong>Marathon Tools Social</strong> made by <a href="https://twitter.com/onest4y">{{creator}}</a>
+                    </p>
+                </div>
+            </footer>
+        </div>
+    </section>
+</body>
+</html>
