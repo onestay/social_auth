@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::templates;
 
 use rocket::State;
 use rocket::http::Status;
@@ -27,25 +27,16 @@ async fn get_twitch_info(_api_key: ApiKey<'_>, service: &str) -> Result<content:
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CheckAvailResponse {
-    services: HashMap<String, bool>
+    pub twitter: bool,
+    pub twitch: bool
 }
 
 #[get("/avail")]
 async fn check_avail(_api_key: ApiKey<'_>) -> Json<CheckAvailResponse> {
-    let mut response = CheckAvailResponse {
-        services: HashMap::new()
-    };
-    let services = vec!["twitch".to_string(), "twitter".to_string()];
-
-    for service in services.into_iter() {
-        let file = fs::File::open(format!("{}_auth.json", service)).await;
-        if file.is_ok() {
-            response.services.insert(service, true);
-        } else {
-            response.services.insert(service, false);
-        }
-    }
-    Json(response)
+    Json(CheckAvailResponse{
+        twitter: templates::is_twitter_avail(),
+        twitch: templates::is_twitch_avail()
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
