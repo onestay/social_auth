@@ -23,11 +23,11 @@ pub fn stage() -> rocket::fairing::AdHoc {
     })
 }
 
-fn is_twitch_avail() -> bool {
+pub fn is_twitch_avail() -> bool {
     Path::new("twitch_auth.json").exists()
 }
 
-fn is_twitter_avail() -> bool {
+pub fn is_twitter_avail() -> bool {
     Path::new("twitter_auth.json").exists()
 }
 
@@ -87,7 +87,7 @@ impl<'r> FromRequest<'r> for Authenticated {
     }
 }
 
-#[get("/")]
+#[get("/", rank = 1)]
 async fn index(
     twitch: &State<Twitch>,
     twitter: &State<Twitter>,
