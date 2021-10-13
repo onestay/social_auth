@@ -13,12 +13,12 @@ use std::env;
 #[launch]
 async fn rocket() -> _ {
     let config = Config::from_env();
-    let twitch = twitch_config::Twitch::new(config.twitch_client_id, config.twitch_client_secret, config.twitch_redirect_uri);
-    let twitter = twitter_config::Twitter::new(config.twitter_api_key, config.twitter_api_secret, config.twitter_callback_url);
+    let twitch = twitch_config::Twitch::new(config.twitch_client_id, config.twitch_client_secret, config.twitch_redirect_uri).await;
+    let twitter = twitter_config::Twitter::new(config.twitter_api_key, config.twitter_api_secret, config.twitter_callback_url).await;
     let sessions = templates::Sessions::new(config.password);
     rocket::build()
         .manage(twitch)
-        .manage(twitter.await)
+        .manage(twitter)
         .manage(sessions)
         .mount("/", FileServer::from("public/"))
         .attach(templates::stage())

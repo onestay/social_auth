@@ -1,18 +1,19 @@
 use crate::error::Error;
-use reqwest::{StatusCode, Url};
+use reqwest::{header, Client, ClientBuilder, Response, StatusCode, Url};
 use rocket::{
     response::Redirect,
     serde::{json::Json, Deserialize, DeserializeOwned, Serialize},
     State,
 };
-use serde_json::to_string;
-use std::{borrow::Borrow, sync::Mutex};
-use tokio::fs;
+use std::borrow::Borrow;
+use tokio::{fs, sync::Mutex};
 
 const AUTHORIZE_URL: &str = "https://id.twitch.tv/oauth2/authorize";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 // const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 const SEARCH_CATEGORIES_URL: &str = "https://api.twitch.tv/helix/search/categories";
+const GET_USER_URL: &str = "https://api.twitch.tv/helix/users";
+const CHANNEL_URL: &str = "https://api.twitch.tv/helix/channels";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TwitchAuthInfo {
@@ -28,6 +29,19 @@ pub struct Twitch {
     client_secret: String,
     redirect_uri: String,
     pub auth_info: Mutex<Option<TwitchAuthInfo>>,
+}
+
+enum TwitchRequestMethod {
+    Get,
+    Patch,
+}
+
+// TODO: rename this after fully moving to new error
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TwitchErrorJson {
+    pub message: String,
+    pub status: u16,
+    pub error: String,
 }
 
 impl Twitch {
@@ -49,12 +63,24 @@ impl Twitch {
     }
 
     pub fn get_authorize_url(&self) -> String {
-        format!("{}?client_id={}&redirect_uri={}&response_type=code&scope=user:read:email&force_verify=true", AUTHORIZE_URL, self.client_id, self.redirect_uri)
+        Url::parse_with_params(
+            AUTHORIZE_URL,
+            [
+                ("client_id", self.client_id.as_str()),
+                ("redirect_uri", self.redirect_uri.as_str()),
+                ("scope", "channel:manage:broadcast user:read:email"),
+                ("response_type", "code"),
+                ("force_verify", "true"),
+            ],
+        )
+        .expect("Unable to parse twitch authorize url")
+        .to_string()
     }
 
     async fn twitch_request<I, B, R, K, V>(
         &self,
         url: &str,
+        method: TwitchRequestMethod,
         query: I,
         body: Option<B>,
     ) -> Result<R, Error>
@@ -66,37 +92,58 @@ impl Twitch {
         V: AsRef<str>,
         <I as IntoIterator>::Item: Borrow<(K, V)>,
     {
-        if let Some(auth_info) = &*self.auth_info.lock()? {
+        if let Some(auth_info) = &*self.auth_info.lock().await {
             let url = Url::parse_with_params(url, query)?;
 
-            let client = reqwest::Client::new();
-            let res = client
-                .post(url)
-                .bearer_auth(&auth_info.access_token)
-                .header("Client-Id", &self.client_id)
-                .send()
-                .await?
-                .json::<R>().await?;
+            let mut headers = header::HeaderMap::new();
+            let auth_header_value = format!("Bearer {}", auth_info.access_token);
+            headers.insert(
+                "Authorization",
+                header::HeaderValue::from_str(&auth_header_value)?,
+            );
+            headers.insert("Client-Id", header::HeaderValue::from_str(&self.client_id)?);
 
-            return Ok(res);
+            let client = ClientBuilder::new().default_headers(headers).build()?;
+            let response = match method {
+                TwitchRequestMethod::Get => client.get(url).send().await?,
+                TwitchRequestMethod::Patch if body.is_some() => {
+                    client.patch(url).json(&body).send().await?
+                }
+                TwitchRequestMethod::Patch => client.patch(url).send().await?,
+            };
+
+            if !response.status().is_success() {
+                let twitch_error = response.json::<TwitchErrorJson>().await?;
+                return Err(twitch_error.into());
+            }
+            // TODO: what to do when not body?
+            return Ok(response.json::<R>().await?);
         }
-        Err(Error::new_bad_request("no twitch auth info available".to_string()))
+        Err(Error::new_bad_request(
+            "no twitch auth info available".to_string(),
+        ))
     }
 
     /// calls the twitch search endpoint and takes the first result as the id
     pub async fn get_game_id_from_string(&self, game_name: &str) -> Result<String, Error> {
-        
         #[derive(Debug, Deserialize)]
         struct InnerResponse {
             id: String,
         }
-        
+
         #[derive(Debug, Deserialize)]
         struct Response {
-            data: Vec<InnerResponse>
+            data: Vec<InnerResponse>,
         }
 
-        let mut res: Response = self.twitch_request(SEARCH_CATEGORIES_URL, [("query", game_name)], None::<()>).await?;
+        let mut res: Response = self
+            .twitch_request(
+                SEARCH_CATEGORIES_URL,
+                TwitchRequestMethod::Get,
+                [("query", game_name)],
+                None::<()>,
+            )
+            .await?;
 
         if res.data.is_empty() {
             return Ok("".to_string());
@@ -105,16 +152,59 @@ impl Twitch {
         Ok(res.data.remove(0).id)
     }
 
-    pub fn game_channel_id_from_string(channel_name: &str) -> Result<u64, TwitchErrorResponse> {
-        todo!()
+    pub async fn get_channel_id_from_string(&self, channel_name: &str) -> Result<String, Error> {
+        #[derive(Debug, Deserialize)]
+        struct InnerResponse {
+            id: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct Response {
+            data: Vec<InnerResponse>,
+        }
+
+        let mut res: Response = self
+            .twitch_request(
+                GET_USER_URL,
+                TwitchRequestMethod::Get,
+                [("login", channel_name)],
+                None::<()>,
+            )
+            .await?;
+
+        if res.data.is_empty() {
+            return Err(Error::new_bad_request(
+                format!("channel with name {} doesn't exist", channel_name).to_string(),
+            ));
+        }
+
+        Ok(res.data.remove(0).id)
     }
 
-    pub fn update_channel(
-        channel_id: u64,
-        game_id: u64,
+    pub async fn update_channel(
+        &self,
+        channel_id: &str,
+        game_id: &str,
         title: &str,
-    ) -> Result<(), TwitchErrorResponse> {
-        todo!()
+    ) -> Result<(), Error> {
+        #[derive(Debug, Serialize)]
+        struct UpdateChannelBody<'a> {
+            game_id: &'a str,
+            title: &'a str,
+        }
+
+        let update_channel_body = UpdateChannelBody { game_id, title };
+
+        let _res: () = self
+            .twitch_request(
+                CHANNEL_URL,
+                TwitchRequestMethod::Patch,
+                [("broadcaster_id", channel_id)],
+                Some(update_channel_body),
+            )
+            .await?;
+
+        Ok(())
     }
 
     pub fn run_commercial(channel_id: u64) -> Result<(), TwitchErrorResponse> {
@@ -139,10 +229,7 @@ struct TwitchError {
 }
 
 #[get("/authorize/callback?<code>")]
-async fn authorize_callback(
-    twitch: &State<Twitch>,
-    code: &str,
-) -> Result<Redirect, TwitchErrorResponse> {
+async fn authorize_callback(twitch: &State<Twitch>, code: &str) -> Result<Redirect, Error> {
     let client = reqwest::Client::new();
     let res = client
         .post(format!(
@@ -152,10 +239,15 @@ async fn authorize_callback(
         .send()
         .await?;
     if !StatusCode::is_success(&res.status()) {
-        let twitch_err: TwitchError = res.json().await?;
+        let twitch_err: TwitchErrorJson = res.json().await?;
         return Err(twitch_err.into());
     }
-    fs::write("twitch_auth.json", res.bytes().await?).await?;
+
+    let auth_info: TwitchAuthInfo = res.json().await?;
+
+    fs::write("twitch_auth.json", serde_json::to_vec(&auth_info)?).await?;
+    let mut auth_info_mutex = twitch.auth_info.lock().await;
+    *auth_info_mutex = Some(auth_info);
     Ok(Redirect::to("/"))
 }
 
