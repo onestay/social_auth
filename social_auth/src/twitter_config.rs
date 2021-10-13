@@ -5,8 +5,7 @@ use rocket::{
 };
 
 use tokio::sync::Mutex;
-
-use egg_mode::{auth, KeyPair};
+use egg_mode::{KeyPair, Token, auth};
 
 use tokio::fs;
 
@@ -14,18 +13,27 @@ pub struct Twitter {
     callback_url: String,
     request_token: Mutex<Option<KeyPair>>,
     con_token: KeyPair,
+    pub auth_token: Mutex<Option<Token>>
 }
 
 impl Twitter {
-    pub fn new(
+    pub async fn new(
         api_key: String,
         api_secret: String,
         callback_url: String,
     ) -> Twitter {
+        let token = match fs::read_to_string("twitter_auth.json").await {
+            Ok(token) => {
+                Some(serde_json::from_str::<Token>(&token).expect("invalid twitter_auth.json"))
+            }
+            Err(_) => None
+        };
+
         Twitter {
             callback_url,
             request_token: Mutex::new(None),
             con_token: egg_mode::KeyPair::new(api_key, api_secret),
+            auth_token: Mutex::new(token),
         }
     }
 
@@ -106,9 +114,13 @@ async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorRes
             egg_mode::auth::access_token(twitter.con_token.clone(), request_token, oauth_verifier)
                 .await?;
         fs::write("twitter_auth.json", serde_json::to_vec(&token)?).await?;
+        let mut saved_auth_token = twitter.auth_token.lock().await;
+        *saved_auth_token = Some(token);
     }
     Ok(Redirect::to("/"))
 }
+
+
 
 pub fn stage() -> rocket::fairing::AdHoc {
     rocket::fairing::AdHoc::on_ignite("twitter", |rocket| async {

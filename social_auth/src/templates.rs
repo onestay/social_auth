@@ -49,12 +49,15 @@ pub struct Sessions {
 
 impl Sessions {
     pub fn new(password: String) -> Self {
-
         Sessions {
             sessions: Mutex::new(vec![]),
             password,
             api_key: gen_random_string(30)
         }
+    }
+
+    pub fn api_key(&self) -> &str {
+        &self.api_key
     }
 }
 
