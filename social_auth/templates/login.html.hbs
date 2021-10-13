@@ -11,16 +11,16 @@
     <section class="section">
         <div class="container">
             <p class="is-size-1">Login</p>
-            <form class="box">
+            <form class="box" action="/login" method="post">
                 <div class="field">
-                    <label for="" class="label">Password</label>
+                    <label for="password" class="label">Password</label>
                     <div class="control">
-                        <input type="password" class="input">
+                        <input type="password" class="input" id="password" name="password">
                     </div>
                 </div>
                 <div class="field">
                     <div class="control">
-                        <button class="button is-primary">Login</button>
+                        <button class="button is-primary" type="submit">Login</button>
                     </div>
                 </div>
             </form>

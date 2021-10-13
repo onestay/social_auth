@@ -13,3 +13,4 @@ serde_json = "1.0.68"
 tokio = { version = "1.12.0", features = ["full"] }
 rocket_dyn_templates = { version = "0.1.0-rc.1", features = ["handlebars"]}
 reqwest = { version = "0.11.5", features = ["json", "rustls-tls"]}
+rand = "0.8.4"
