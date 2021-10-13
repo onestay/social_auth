@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 pub fn stage() -> rocket::fairing::AdHoc {
     rocket::fairing::AdHoc::on_ignite("templates", |rocket| async {
         rocket
-            .mount("/", routes![index, index_no_login, login, login_post])
+            .mount("/", routes![index, index_no_login, login, login_post, login_forward])
             .attach(Template::fairing())
     })
 }
@@ -113,7 +113,12 @@ fn index_no_login() -> Redirect {
     Redirect::to("/login")
 }
 
-#[get("/login")]
+#[get("/login", rank = 1)]
+async fn login_forward(_authenticated: Authenticated) -> Redirect {
+    Redirect::to("/")
+}
+
+#[get("/login", rank = 2)]
 async fn login() -> Template {
     Template::render("login", ())
 }
