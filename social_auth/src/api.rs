@@ -102,6 +102,17 @@ async fn post_tweet(_api_key: ApiKey<'_>, tweet_body: Json<PostTweetRequest<'_>>
     Err(ApiErrorResponse::file_not_found("twitter"))
 }
 
+#[derive(Deserialize)]
+struct TwitchUpdateRequest<'r> {
+    game: &'r str,
+    title: &'r str,
+    channel_id: u32
+}
+
+#[post("/twitch_update", data = "<twitch_data>")]
+async fn twitch_update(_api_key: ApiKey<'_>, twitch_data: Json<TwitchUpdateRequest<'_>>) {
+    
+}
 
 struct ApiKey<'r>(&'r str);
 

@@ -2,6 +2,8 @@ mod twitch_config;
 mod api;
 mod twitter_config;
 mod templates;
+mod error;
+
 #[macro_use]
 extern crate rocket;
 use rocket::fs::FileServer;
