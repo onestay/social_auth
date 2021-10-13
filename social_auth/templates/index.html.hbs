@@ -36,6 +36,17 @@
                 </div>
             </div>
 
+            <div class="field">
+                <label for="api-key" class="label">API-key</label>
+                <div class="control">
+                    <input type="password" class="input" value="{{api_key}}" id="api-key" readonly>
+                </div>
+            </div>
+            <label class="checkbox">
+                <input type="checkbox" id="show">
+                Show API-key
+            </label>
+
             <footer class="footer">
                 <div class="content has-text-centered container">
                     <p>
@@ -45,5 +56,17 @@
             </footer>
         </div>
     </section>
+    <script>
+        const btn = document.getElementById("show")
+        const key = document.getElementById("api-key")
+
+        btn.addEventListener('click', () => {
+            if (key.type == 'text') {
+                key.type = 'password'
+            } else {
+                key.type = 'text'
+            }
+        })
+    </script>
 </body>
 </html>

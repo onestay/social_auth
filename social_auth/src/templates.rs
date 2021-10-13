@@ -32,24 +32,28 @@ fn is_twitter_avail() -> bool {
 }
 
 #[derive(Debug, Serialize)]
-pub struct IndexContext {
+pub struct IndexContext<'a> {
     creator: String,
     twitch_url: String,
     twitter_url: String,
     twitter_avail: bool,
     twitch_avail: bool,
+    api_key: &'a str
 }
 
 pub struct Sessions {
     sessions: Mutex<Vec<String>>,
     password: String,
+    api_key: String,
 }
 
 impl Sessions {
     pub fn new(password: String) -> Self {
+
         Sessions {
             sessions: Mutex::new(vec![]),
             password,
+            api_key: gen_random_string(30)
         }
     }
 }
@@ -84,6 +88,7 @@ impl<'r> FromRequest<'r> for Authenticated {
 async fn index(
     twitch: &State<Twitch>,
     twitter: &State<Twitter>,
+    sessions: &State<Sessions>,
     _authenticated: Authenticated,
 ) -> Template {
     let context = IndexContext {
@@ -95,6 +100,7 @@ async fn index(
             .expect("can't get twitter url"),
         twitch_avail: is_twitch_avail(),
         twitter_avail: is_twitter_avail(),
+        api_key: &sessions.api_key
     };
     Template::render("index", context)
 }
@@ -121,11 +127,7 @@ async fn login_post(
     cookies: &CookieJar<'_>,
 ) -> Redirect {
     if login_form.password == sessions.password {
-        let session_token: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .map(char::from)
-            .collect();
+        let session_token: String = gen_random_string(30);
 
         cookies.add(Cookie::new("session", session_token.clone()));
         sessions.sessions.lock().await.push(session_token);
@@ -133,4 +135,12 @@ async fn login_post(
     }
 
     Redirect::to("/login")
+}
+
+fn gen_random_string(n: usize) -> String {
+    thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(n)
+    .map(char::from)
+    .collect()
 }
