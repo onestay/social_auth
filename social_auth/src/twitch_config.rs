@@ -1,8 +1,8 @@
 use crate::error::Error;
-use reqwest::{header, Client, ClientBuilder, Response, StatusCode, Url};
+use reqwest::{header, ClientBuilder, StatusCode, Url};
 use rocket::{
     response::Redirect,
-    serde::{json::Json, Deserialize, DeserializeOwned, Serialize},
+    serde::{Deserialize, DeserializeOwned, Serialize},
     State,
 };
 use std::borrow::Borrow;
@@ -14,6 +14,7 @@ const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const SEARCH_CATEGORIES_URL: &str = "https://api.twitch.tv/helix/search/categories";
 const GET_USER_URL: &str = "https://api.twitch.tv/helix/users";
 const CHANNEL_URL: &str = "https://api.twitch.tv/helix/channels";
+const COMMERICAL_URL: &str = "https://api.twitch.tv/helix/channels/commercial";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TwitchAuthInfo {
@@ -34,6 +35,7 @@ pub struct Twitch {
 enum TwitchRequestMethod {
     Get,
     Patch,
+    Post,
 }
 
 // TODO: rename this after fully moving to new error
@@ -42,6 +44,13 @@ pub struct TwitchErrorJson {
     pub message: String,
     pub status: u16,
     pub error: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TwitchAdJson {
+    length: u64,
+    message: String,
+    retry_after: u64,
 }
 
 impl Twitch {
@@ -68,7 +77,10 @@ impl Twitch {
             [
                 ("client_id", self.client_id.as_str()),
                 ("redirect_uri", self.redirect_uri.as_str()),
-                ("scope", "channel:manage:broadcast user:read:email"),
+                (
+                    "scope",
+                    "channel:manage:broadcast user:read:email channel:edit:commercial",
+                ),
                 ("response_type", "code"),
                 ("force_verify", "true"),
             ],
@@ -77,13 +89,14 @@ impl Twitch {
         .to_string()
     }
 
+    // the return type of this function is kinda ugly but there's no real alternative for if theres no body in the http response
     async fn twitch_request<I, B, R, K, V>(
         &self,
         url: &str,
         method: TwitchRequestMethod,
         query: I,
         body: Option<B>,
-    ) -> Result<R, Error>
+    ) -> Result<Option<R>, Error>
     where
         I: IntoIterator,
         B: Serialize,
@@ -110,6 +123,10 @@ impl Twitch {
                     client.patch(url).json(&body).send().await?
                 }
                 TwitchRequestMethod::Patch => client.patch(url).send().await?,
+                TwitchRequestMethod::Post if body.is_some() => {
+                    client.post(url).json(&body).send().await?
+                }
+                TwitchRequestMethod::Post => client.post(url).send().await?,
             };
 
             if !response.status().is_success() {
@@ -117,7 +134,13 @@ impl Twitch {
                 return Err(twitch_error.into());
             }
             // TODO: what to do when not body?
-            return Ok(response.json::<R>().await?);
+            if let Some(content_length) = response.content_length() {
+                if content_length > 0 {
+                    return Ok(Some(response.json::<R>().await?));
+                }
+            }
+
+            return Ok(None);
         }
         Err(Error::new_bad_request(
             "no twitch auth info available".to_string(),
@@ -136,7 +159,7 @@ impl Twitch {
             data: Vec<InnerResponse>,
         }
 
-        let mut res: Response = self
+        let res: Option<Response> = self
             .twitch_request(
                 SEARCH_CATEGORIES_URL,
                 TwitchRequestMethod::Get,
@@ -145,11 +168,17 @@ impl Twitch {
             )
             .await?;
 
-        if res.data.is_empty() {
-            return Ok("".to_string());
+        if let Some(mut res) = res {
+            if res.data.is_empty() {
+                return Ok("".to_string());
+            }
+
+            return Ok(res.data.remove(0).id);
         }
 
-        Ok(res.data.remove(0).id)
+        Err(Error::new_internal_server_error(
+            "body was none".to_string(),
+        ))
     }
 
     pub async fn get_channel_id_from_string(&self, channel_name: &str) -> Result<String, Error> {
@@ -163,7 +192,7 @@ impl Twitch {
             data: Vec<InnerResponse>,
         }
 
-        let mut res: Response = self
+        let res: Option<Response> = self
             .twitch_request(
                 GET_USER_URL,
                 TwitchRequestMethod::Get,
@@ -172,13 +201,19 @@ impl Twitch {
             )
             .await?;
 
-        if res.data.is_empty() {
-            return Err(Error::new_bad_request(
-                format!("channel with name {} doesn't exist", channel_name).to_string(),
-            ));
+        if let Some(mut res) = res {
+            if res.data.is_empty() {
+                return Err(Error::new_bad_request(
+                    format!("channel with name {} doesn't exist", channel_name),
+                ));
+            }
+
+            return Ok(res.data.remove(0).id);
         }
 
-        Ok(res.data.remove(0).id)
+        Err(Error::new_internal_server_error(
+            "body was none".to_string(),
+        ))
     }
 
     pub async fn update_channel(
@@ -195,7 +230,7 @@ impl Twitch {
 
         let update_channel_body = UpdateChannelBody { game_id, title };
 
-        let _res: () = self
+        let _res: Option<()> = self
             .twitch_request(
                 CHANNEL_URL,
                 TwitchRequestMethod::Patch,
@@ -207,25 +242,45 @@ impl Twitch {
         Ok(())
     }
 
-    pub fn run_commercial(channel_id: u64) -> Result<(), TwitchErrorResponse> {
-        todo!()
+    pub async fn run_commercial(
+        &self,
+        channel_id: String,
+        length: u16,
+    ) -> Result<TwitchAdJson, Error> {
+
+        #[derive(Serialize)]
+        struct StartCommericalBody {
+            broadcaster_id: String,
+            length: u16,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct Response {
+            data: Vec<TwitchAdJson>,
+        }
+
+        let start_commerical_body = StartCommericalBody {
+            broadcaster_id: channel_id,
+            length,
+        };
+
+        let res: Option<Response> = self
+            .twitch_request(
+                COMMERICAL_URL,
+                TwitchRequestMethod::Post,
+                Vec::new() as Vec<(&str, &str)>,
+                Some(start_commerical_body),
+            )
+            .await?;
+
+        if let Some(mut res) = res {
+            return Ok(res.data.remove(1));
+        }
+
+        Err(Error::new_internal_server_error(
+            "body was none".to_string(),
+        ))
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct TwitchResponse {
-    access_token: String,
-    refresh_token: String,
-    expires_in: i64,
-    scope: Vec<String>,
-    token_type: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct TwitchError {
-    status: u16,
-    message: String,
-    error: Option<String>,
 }
 
 #[get("/authorize/callback?<code>")]
@@ -249,49 +304,6 @@ async fn authorize_callback(twitch: &State<Twitch>, code: &str) -> Result<Redire
     let mut auth_info_mutex = twitch.auth_info.lock().await;
     *auth_info_mutex = Some(auth_info);
     Ok(Redirect::to("/"))
-}
-
-#[derive(Debug, Responder)]
-pub struct TwitchErrorResponse {
-    inner: Json<TwitchError>,
-}
-
-impl From<reqwest::Error> for TwitchErrorResponse {
-    fn from(err: reqwest::Error) -> Self {
-        let twitch_error = TwitchError {
-            status: err
-                .status()
-                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-                .as_u16(),
-            message: err.to_string(),
-            error: Some(String::from("internal server error")),
-        };
-        TwitchErrorResponse {
-            inner: Json(twitch_error),
-        }
-    }
-}
-
-impl From<TwitchError> for TwitchErrorResponse {
-    fn from(twitch_error: TwitchError) -> Self {
-        TwitchErrorResponse {
-            inner: Json(twitch_error),
-        }
-    }
-}
-
-impl From<std::io::Error> for TwitchErrorResponse {
-    fn from(err: std::io::Error) -> Self {
-        let twitch_error = TwitchError {
-            status: 500,
-            error: Some(String::from("internal server error")),
-            message: err.to_string(),
-        };
-
-        TwitchErrorResponse {
-            inner: Json(twitch_error),
-        }
-    }
 }
 
 pub fn stage() -> rocket::fairing::AdHoc {

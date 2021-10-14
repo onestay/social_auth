@@ -1,6 +1,5 @@
 use rocket::{
     response::Redirect,
-    serde::{json::Json, Deserialize, Serialize},
     State,
 };
 
@@ -8,6 +7,8 @@ use tokio::sync::Mutex;
 use egg_mode::{KeyPair, Token, auth};
 
 use tokio::fs;
+
+use crate::error::Error;
 
 pub struct Twitter {
     callback_url: String,
@@ -37,7 +38,7 @@ impl Twitter {
         }
     }
 
-    pub async fn get_authorize_url(&self) -> Result<String, TwitterErrorResponse> {
+    pub async fn get_authorize_url(&self) -> Result<String, Error> {
         let req_token = egg_mode::auth::request_token(&self.con_token, &self.callback_url).await?;
         let redirect_url = auth::authorize_url(&req_token);
         let mut token = self.request_token.lock().await;
@@ -47,56 +48,8 @@ impl Twitter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TwitterError {
-    status: u16,
-    message: String,
-    error: Option<String>,
-}
-
-#[derive(Debug, Responder)]
-pub struct TwitterErrorResponse {
-    inner: Json<TwitterError>,
-}
-
-impl From<egg_mode::error::Error> for TwitterErrorResponse {
-    fn from(err: egg_mode::error::Error) -> Self {
-        TwitterErrorResponse {
-            inner: Json(TwitterError {
-                status: 500,
-                message: String::from("internal server error"),
-                error: Some(err.to_string()),
-            }),
-        }
-    }
-}
-
-impl From<std::io::Error> for TwitterErrorResponse {
-    fn from(err: std::io::Error) -> Self {
-        TwitterErrorResponse {
-            inner: Json(TwitterError {
-                status: 500,
-                message: String::from("internal server error"),
-                error: Some(err.to_string()),
-            }),
-        }
-    }
-}
-
-impl From<serde_json::Error> for TwitterErrorResponse {
-    fn from(err: serde_json::Error) -> Self {
-        TwitterErrorResponse {
-            inner: Json(TwitterError {
-                status: 500,
-                message: String::from("internal server error"),
-                error: Some(err.to_string()),
-            }),
-        }
-    }
-}
-
 #[get("/authorize")]
-async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorResponse> {
+async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, Error> {
     let redirect_url = twitter.get_authorize_url().await?;
     Ok(Redirect::to(redirect_url))
 }
@@ -107,7 +60,7 @@ async fn authorize(twitter: &State<Twitter>) -> Result<Redirect, TwitterErrorRes
     oauth_token: &str,
     twitter: &State<Twitter>,
     oauth_verifier: &str,
-) -> Result<Redirect, TwitterErrorResponse> {
+) -> Result<Redirect, Error> {
     let request_token = twitter.request_token.lock().await;
     if let Some(ref request_token) = *request_token {
         let (token, _, _) =

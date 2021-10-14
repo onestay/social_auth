@@ -10,15 +10,13 @@ pub struct ErrorResponse {
     message: String
 }
 
-#[derive(Responder)]
+#[derive(Debug, Responder)]
 #[allow(clippy::enum_variant_names)] 
 pub enum Error {
     #[response(status=400)]
     BadRequest(Json<ErrorResponse>),
     #[response(status=500)]
     InternalServerError(Json<ErrorResponse>),
-    #[response(status=403)]
-    Unauthorized(Json<ErrorResponse>),
     #[response(status=404)]
     NotFound(Json<ErrorResponse>)
 }
@@ -32,12 +30,12 @@ impl Error {
         Self::InternalServerError(Json(Self::new_error_response(500, message)))
     }
 
-    pub fn new_unauthorized(message: String) -> Self {
-        Self::Unauthorized(Json(Self::new_error_response(403, message)))
-    }
-
     pub fn new_not_found(message: String) -> Self {
         Self::NotFound(Json(Self::new_error_response(404, message)))
+    }
+
+    pub fn new_auth_not_avail(service: &str) -> Self {
+        Self::BadRequest(Json(Self::new_error_response(403, format!("no {} auth info available", service))))
     }
 
     fn new_error_response(status: u16, message: String) -> ErrorResponse {
@@ -98,6 +96,12 @@ impl From<std::io::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
+        Self::new_internal_server_error(err.to_string())
+    }
+}
+
+impl From<egg_mode::error::Error> for Error {
+    fn from(err: egg_mode::error::Error) -> Self {
         Self::new_internal_server_error(err.to_string())
     }
 }

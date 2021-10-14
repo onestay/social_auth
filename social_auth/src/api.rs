@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::twitch_config::TwitchAdJson;
 use crate::{templates, twitch_config::Twitch};
 
 use rocket::http::Status;
@@ -14,12 +15,14 @@ use crate::twitter_config::Twitter;
 async fn get_twitch_info(
     _api_key: ApiKey<'_>,
     service: &str,
-) -> Result<content::Json<Vec<u8>>, ApiErrorResponse> {
+) -> Result<content::Json<Vec<u8>>, Error> {
     let bytes = fs::read(format!("{}_auth.json", service)).await;
     let bytes = match bytes {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(ApiErrorResponse::file_not_found(service));
+            return Err(Error::new_bad_request(
+                format!("no {} auth info available", service),
+            ));
         }
         Err(e) => return Err(e.into()),
     };
@@ -66,54 +69,6 @@ fn not_found(_req: &Request) -> Error {
     Error::new_not_found("the requested resource does not exist".to_string())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ApiError {
-    status: u16,
-    message: String,
-    error: Option<String>,
-}
-
-#[derive(Debug, Responder)]
-struct ApiErrorResponse {
-    inner: Json<ApiError>,
-}
-
-impl ApiErrorResponse {
-    fn file_not_found(service: &str) -> Self {
-        ApiErrorResponse {
-            inner: Json(ApiError {
-                status: 401,
-                message: String::from("bad request"),
-                error: Some(format!("no {} info available", service)),
-            }),
-        }
-    }
-}
-
-impl From<std::io::Error> for ApiErrorResponse {
-    fn from(err: std::io::Error) -> Self {
-        ApiErrorResponse {
-            inner: Json(ApiError {
-                status: 500,
-                message: String::from("internal server error"),
-                error: Some(err.to_string()),
-            }),
-        }
-    }
-}
-
-impl From<egg_mode::error::Error> for ApiErrorResponse {
-    fn from(err: egg_mode::error::Error) -> Self {
-        ApiErrorResponse {
-            inner: Json(ApiError {
-                status: 500,
-                message: String::from("internal server error"),
-                error: Some(err.to_string()),
-            }),
-        }
-    }
-}
-
 #[derive(Deserialize)]
 struct PostTweetRequest<'r> {
     body: &'r str,
@@ -124,7 +79,7 @@ async fn post_tweet(
     _api_key: ApiKey<'_>,
     tweet_body: Json<PostTweetRequest<'_>>,
     twitter: &State<Twitter>,
-) -> Result<status::Custom<()>, ApiErrorResponse> {
+) -> Result<status::Custom<()>, Error> {
     if let Some(token) = &*twitter.auth_token.lock().await {
         egg_mode::tweet::DraftTweet::new(tweet_body.body.to_string())
             .send(token)
@@ -132,7 +87,7 @@ async fn post_tweet(
         return Ok(status::Custom(Status::NoContent, ()));
     }
 
-    Err(ApiErrorResponse::file_not_found("twitter"))
+    Err(Error::new_auth_not_avail("twitter"))
 }
 
 #[derive(Deserialize)]
@@ -142,13 +97,21 @@ struct TwitchUpdateRequest<'r> {
     login: &'r str,
 }
 
-#[post("/twitch_update", data = "<twitch_data>")]
+#[post("/twitch/update", data = "<twitch_data>")]
 async fn twitch_update(_api_key: ApiKey<'_>, twitch_data: Json<TwitchUpdateRequest<'_>>, twitch: &State<Twitch>) -> Result<status::Custom<()>, Error> {
     let channel_id = twitch.get_channel_id_from_string(twitch_data.login).await?;
     let game_id = twitch.get_game_id_from_string(twitch_data.game).await?;
     twitch.update_channel(&channel_id, &game_id, twitch_data.title).await?;
 
     Ok(status::Custom(Status::NoContent, ()))
+}
+
+#[post("/twitch/commercial?<login>&<length>")]
+async fn twitch_commercial(_api_key: ApiKey<'_>, twitch: &State<Twitch>, login: &str, length: u16) -> Result<Json<TwitchAdJson>, Error> {
+    let channel_id = twitch.get_channel_id_from_string(login).await?;
+    let res = twitch.run_commercial(channel_id, length).await?;
+
+    Ok(Json(res))
 }
 
 struct ApiKey<'r>(&'r str);
@@ -181,7 +144,7 @@ pub fn stage() -> rocket::fairing::AdHoc {
         rocket
             .mount(
                 "/api/v1",
-                routes![get_twitch_info, check_avail, post_tweet, twitch_game_to_id, twitch_update],
+                routes![get_twitch_info, check_avail, post_tweet, twitch_game_to_id, twitch_update, twitch_commercial],
             )
             .register("/api/v1", catchers![bad_request, not_found])
     })
