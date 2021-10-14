@@ -5,16 +5,17 @@ use rocket::{
     serde::{Deserialize, DeserializeOwned, Serialize},
     State,
 };
-use std::borrow::Borrow;
+use std::{borrow::Borrow};
 use tokio::{fs, sync::Mutex};
 
 const AUTHORIZE_URL: &str = "https://id.twitch.tv/oauth2/authorize";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
-// const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
+const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 const SEARCH_CATEGORIES_URL: &str = "https://api.twitch.tv/helix/search/categories";
 const GET_USER_URL: &str = "https://api.twitch.tv/helix/users";
 const CHANNEL_URL: &str = "https://api.twitch.tv/helix/channels";
 const COMMERICAL_URL: &str = "https://api.twitch.tv/helix/channels/commercial";
+const REFRESH_URL: &str = "https://id.twitch.tv/oauth2/token";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TwitchAuthInfo {
@@ -71,6 +72,52 @@ impl Twitch {
         }
     }
 
+    async fn validate_token(&self) -> Result<(), Error> {
+        println!("validating token");
+        let auth_info_lock = self.auth_info.lock().await;
+        if let Some(auth_info) = &*auth_info_lock {
+            let client = reqwest::Client::new();
+            let res = client
+                .get(VALIDATE_URL)
+                .bearer_auth(&auth_info.access_token)
+                .send()
+                .await?;
+            if res.status().is_success() {
+                println!("okay");
+                return Ok(());
+            }
+
+            drop(auth_info_lock);
+
+            println!("refreshing token");
+            self.refresh_token().await?;
+            return Ok(());
+        }
+
+        Err(Error::new_auth_not_avail("twitch"))
+    }
+
+    async fn refresh_token(&self) -> Result<(), Error> {
+        if let Some(ref mut auth_info) = *self.auth_info.lock().await {
+            let client = reqwest::Client::new();
+            let url = Url::parse_with_params(REFRESH_URL, [
+                ("grant_type", "refresh_token"),
+                ("refresh_token", &auth_info.refresh_token),
+                ("client_id", &self.client_id),
+                ("client_secret", &self.client_secret)
+            ])?;
+
+            let res = client.post(url).send().await?;
+
+            if res.status().is_success() {
+                *auth_info = res.json::<TwitchAuthInfo>().await?;
+            }
+
+        }
+        println!("refreshed token success");
+        Ok(())
+    }
+
     pub fn get_authorize_url(&self) -> String {
         Url::parse_with_params(
             AUTHORIZE_URL,
@@ -105,6 +152,7 @@ impl Twitch {
         V: AsRef<str>,
         <I as IntoIterator>::Item: Borrow<(K, V)>,
     {
+        self.validate_token().await?;
         if let Some(auth_info) = &*self.auth_info.lock().await {
             let url = Url::parse_with_params(url, query)?;
 
@@ -133,7 +181,6 @@ impl Twitch {
                 let twitch_error = response.json::<TwitchErrorJson>().await?;
                 return Err(twitch_error.into());
             }
-            // TODO: what to do when not body?
             if let Some(content_length) = response.content_length() {
                 if content_length > 0 {
                     return Ok(Some(response.json::<R>().await?));
@@ -203,9 +250,10 @@ impl Twitch {
 
         if let Some(mut res) = res {
             if res.data.is_empty() {
-                return Err(Error::new_bad_request(
-                    format!("channel with name {} doesn't exist", channel_name),
-                ));
+                return Err(Error::new_bad_request(format!(
+                    "channel with name {} doesn't exist",
+                    channel_name
+                )));
             }
 
             return Ok(res.data.remove(0).id);
@@ -247,7 +295,6 @@ impl Twitch {
         channel_id: String,
         length: u16,
     ) -> Result<TwitchAdJson, Error> {
-
         #[derive(Serialize)]
         struct StartCommericalBody {
             broadcaster_id: String,
