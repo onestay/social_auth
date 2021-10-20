@@ -37,6 +37,7 @@ pub struct GenericApiResponse<T: Serialize> {
 
 #[get("/twitch/login_to_id?<login>")]
 async fn twitch_game_to_id(
+    _api_key: ApiKey<'_>,
     twitch: &State<Twitch>,
     login: &str,
 ) -> Result<Json<GenericApiResponse<String>>, Error> {
