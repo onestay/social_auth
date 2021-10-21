@@ -8,5 +8,5 @@ WORKDIR /usr/src/social
 COPY . .
 
 RUN cargo build --release
-
+EXPOSE 8000
 CMD [ "./target/release/social_auth" ]
