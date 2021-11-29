@@ -81,7 +81,7 @@ async fn post_tweet(
     tweet_body: Json<PostTweetRequest<'_>>,
     twitter: &State<Twitter>,
 ) -> Result<status::Custom<()>, Error> {
-    if let Some(token) = &*twitter.auth_token.lock().await {
+    if let Some(ref token) = *twitter.auth_token.lock().await {
         egg_mode::tweet::DraftTweet::new(tweet_body.body.to_string())
             .send(token)
             .await?;
